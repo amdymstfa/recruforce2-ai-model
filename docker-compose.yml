@@ -1,0 +1,52 @@
+# ===================================================
+# RecruForce2 AI Service - Docker Compose
+# Runs AI service + MongoDB
+# ===================================================
+
+version: '3.8'
+
+services:
+  # AI Microservice
+  ai-service:
+    build: .
+    container_name: recruforce2-ai
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=True
+      - MONGODB_HOST=mongodb
+      - MONGODB_PORT=27017
+      - MONGODB_DATABASE=recruforce2_dev
+      - BACKEND_API_URL=http://host.docker.internal:8080
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+      - ./persistence:/app/persistence
+    depends_on:
+      - mongodb
+    networks:
+      - recruforce-network
+    restart: unless-stopped
+
+  # MongoDB
+  mongodb:
+    image: mongo:6.0
+    container_name: recruforce2-mongo
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_DATABASE=recruforce2_dev
+    volumes:
+      - mongodb-data:/data/db
+    networks:
+      - recruforce-network
+    restart: unless-stopped
+
+volumes:
+  mongodb-data:
+    driver: local
+
+networks:
+  recruforce-network:
+    driver: bridge
