@@ -22,8 +22,8 @@ class Settings(BaseSettings):
 
   # Backend API
   backend_api_url: str = "http://localhost:8080"
-  backend_api_email: str = "ai-service@recruforce2.internal"
-  backend_api_password: str = "AiService@Internal2024!"
+  backend_api_email: str = "ai-service2@recruforce2.internal"
+  backend_api_password: str = "AiService@2024!"
 
   # File Upload
   max_file_size_mb: int = 10
