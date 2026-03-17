@@ -22,6 +22,8 @@ class Settings(BaseSettings):
 
   # Backend API
   backend_api_url: str = "http://localhost:8080"
+  backend_api_email: str = "ai-service@recruforce2.internal"
+  backend_api_password: str = "AiService@Internal2024!"
 
   # File Upload
   max_file_size_mb: int = 10
@@ -56,3 +58,4 @@ settings = Settings()
 def get_settings() -> Settings:
   """Get application settings."""
   return settings
+# Already in Settings class — add these fields if not present
