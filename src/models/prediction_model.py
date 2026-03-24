@@ -96,14 +96,18 @@ class PredictionModel:
         if not self.is_trained:
             return self._rule_based_prediction(matching_score)
         
-        # Scale features
-        features_scaled = self.scaler.transform(features)
-        
-        # Predict probability
-        success_probability = self.model.predict_proba(features_scaled)[0][1]
-        
-        # Model confidence
-        confidence = self.model.predict_proba(features_scaled).max()
+        try:
+            # Scale features
+            features_scaled = self.scaler.transform(features)
+            
+            # Predict probability
+            proba = self.model.predict_proba(features_scaled)
+            if proba.shape[1] < 2:
+                return self._rule_based_prediction(matching_score)
+            success_probability = proba[0][1]
+            confidence = proba.max()
+        except Exception:
+            return self._rule_based_prediction(matching_score)
         
         # Generate explanation
         main_factors = self._generate_factors(
@@ -232,5 +236,10 @@ def get_prediction_model() -> PredictionModel:
     """Get or create prediction model instance."""
     global prediction_model
     if prediction_model is None:
-        prediction_model = PredictionModel()
+        # Chemin vers le fichier défini dans settings
+        model_path = Path(settings.models_dir) / "prediction_model.pkl"
+        if model_path.exists():
+            prediction_model = PredictionModel.load_model(model_path)
+        else:
+            prediction_model = PredictionModel()
     return prediction_model

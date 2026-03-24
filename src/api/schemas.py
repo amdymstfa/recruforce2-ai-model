@@ -3,7 +3,7 @@ Pydantic schemas for API request and response validation.
 Defines all DTOs used by the FastAPI endpoints.
 """
 
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
@@ -11,6 +11,12 @@ from datetime import datetime
 # =====================================================
 # CV Parsing Schemas
 # =====================================================
+
+class CVParseJSONRequest(BaseModel):
+    """Request for CV parsing via JSON (Base64)."""
+    candidate_id: Optional[int] = Field(None, description="PostgreSQL candidate ID")
+    file_base64: str = Field(..., description="CV file content encoded in Base64")
+    filename: str = Field("cv.pdf", description="Original filename with extension")
 
 class ExperienceSchema(BaseModel):
     """Professional experience entry."""
@@ -64,6 +70,10 @@ class ParsedCVResponse(BaseModel):
     parsing_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     model_version: str = "1.0.0"
     parsed_at: datetime = Field(default_factory=datetime.now)
+    parsed_cv_id: Optional[str] = None
+
+    # Autorise l'utilisation de noms de champs commençant par model_
+    model_config = ConfigDict(protected_namespaces=())
 
 
 # =====================================================
@@ -80,18 +90,16 @@ class MatchingScoreResponse(BaseModel):
     """Response with matching score between candidate and job offer."""
     candidate_id: int
     candidate_name: Optional[str] = None
-    
     job_offer_id: int
     job_offer_title: Optional[str] = None
-    
     matching_score: int = Field(..., ge=0, le=100, description="Score 0-100")
     is_qualified: bool
-    
     matched_skills: List[str] = []
     missing_skills: List[str] = []
-    
     model_version: str = "1.0.0"
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    model_config = ConfigDict(protected_namespaces=())
 
 
 # =====================================================
@@ -108,16 +116,15 @@ class PredictionResponse(BaseModel):
     """Response with ML prediction for hiring success."""
     candidate_id: int
     job_offer_id: int
-    
     matching_score: float = Field(..., ge=0.0, le=100.0)
     success_probability: float = Field(..., ge=0.0, le=1.0)
     confidence: float = Field(..., ge=0.0, le=1.0)
-    
     main_factors: str
     recommendation: str
-    
     model_version: str = "1.0.0"
     calculated_at: datetime = Field(default_factory=datetime.now)
+
+    model_config = ConfigDict(protected_namespaces=())
 
 
 # =====================================================
@@ -130,17 +137,16 @@ class AILogRequest(BaseModel):
     candidate_id: Optional[int] = None
     job_offer_id: Optional[int] = None
     application_id: Optional[int] = None
-    
     request_payload: Dict[str, Any] = {}
     response_payload: Dict[str, Any] = {}
-    
     http_status: int = 200
     status: str = Field(..., description="SUCCESS, FAILURE, TIMEOUT, ERROR")
     error_message: Optional[str] = None
-    
     duration_ms: Optional[int] = None
     model_version: Optional[str] = None
     endpoint: Optional[str] = None
+
+    model_config = ConfigDict(protected_namespaces=())
 
 
 # =====================================================
@@ -153,7 +159,6 @@ class HealthResponse(BaseModel):
     service: str = "RecruForce2 AI Service"
     version: str = "1.0.0"
     timestamp: datetime = Field(default_factory=datetime.now)
-    
     mongodb_connected: bool = False
     models_loaded: bool = False
 
@@ -168,28 +173,3 @@ class ErrorResponse(BaseModel):
     message: str
     details: Optional[Dict[str, Any]] = None
     timestamp: datetime = Field(default_factory=datetime.now)
-
-
-# =====================================================
-# File Upload Schemas
-# =====================================================
-
-class FileUploadResponse(BaseModel):
-    """Response after file upload."""
-    filename: str
-    file_path: str
-    file_size: int
-    uploaded_at: datetime = Field(default_factory=datetime.now)
-
-
-# =====================================================
-# Config Schema
-# =====================================================
-
-class ConfigResponse(BaseModel):
-    """API configuration information."""
-    app_name: str
-    version: str
-    max_file_size_mb: int
-    allowed_extensions: List[str]
-    matching_threshold: int

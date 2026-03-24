@@ -3,6 +3,7 @@ CV Parser Service - Orchestrates CV parsing workflow.
 Handles file upload, parsing, and data extraction.
 """
 
+import os
 from pathlib import Path
 from typing import Dict
 from fastapi import UploadFile
@@ -24,21 +25,23 @@ class CVParserService:
         self.mongodb_service = get_mongodb_service()
     
     async def parse_cv(self, file: UploadFile, candidate_id: int = None) -> Dict:
-        """
-        Parse CV file and extract structured data.
-        
-        Args:
-            file: Uploaded CV file (PDF or DOCX)
-            candidate_id: Optional PostgreSQL candidate ID
-            
-        Returns:
-            Parsed CV data
-        """
-        logger.info(f"Starting CV parsing for file: {file.filename}")
-        
-        # Save uploaded file
+        """Parse via UploadFile (Multipart)."""
         file_path = await self.file_handler.save_upload_file(file)
+        return await self._process_parsing(file_path, file.filename, candidate_id)
+
+    async def parse_cv_from_bytes(self, content: bytes, filename: str, candidate_id: int = None) -> Dict:
+        """Parse via Raw Bytes (JSON Base64)."""
+        upload_dir = Path("uploads/cvs")
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        file_path = upload_dir / filename
         
+        with open(file_path, "wb") as f:
+            f.write(content)
+            
+        return await self._process_parsing(file_path, filename, candidate_id)
+
+    async def _process_parsing(self, file_path: Path, filename: str, candidate_id: int = None) -> Dict:
+        """Internal logic for parsing and saving."""
         try:
             # Parse CV
             parsed_data = self.parser_model.parse_cv(file_path)
@@ -58,7 +61,7 @@ class CVParserService:
             await self.mongodb_service.log_ai_operation(
                 operation_type="CV_PARSING",
                 candidate_id=candidate_id,
-                request_payload={"filename": file.filename},
+                request_payload={"filename": filename},
                 response_payload=parsed_data,
                 status="SUCCESS",
                 model_version="1.0.0"
@@ -69,30 +72,24 @@ class CVParserService:
             
         except Exception as e:
             logger.error(f"CV parsing failed: {e}")
-            
-            # Log error to MongoDB
             await self.mongodb_service.log_ai_operation(
                 operation_type="CV_PARSING",
                 candidate_id=candidate_id,
-                request_payload={"filename": file.filename},
+                request_payload={"filename": filename},
                 response_payload={},
                 status="ERROR",
                 error_message=str(e)
             )
-            
             raise
-        
         finally:
-            # Cleanup uploaded file
-            self.file_handler.delete_file(file_path)
+            if file_path.exists():
+                os.remove(file_path)
 
 
 # Global instance
 cv_parser_service = None
 
-
 def get_cv_parser_service() -> CVParserService:
-    """Get CV parser service instance."""
     global cv_parser_service
     if cv_parser_service is None:
         cv_parser_service = CVParserService()

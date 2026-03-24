@@ -3,7 +3,8 @@ FastAPI endpoints for RecruForce2 AI Service.
 Provides REST API for CV parsing, matching, and predictions.
 """
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Query
+import base64
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Body, Request
 from typing import Optional
 from src.api.schemas import (
     ParsedCVResponse, 
@@ -12,7 +13,8 @@ from src.api.schemas import (
     PredictionRequest,
     PredictionResponse,
     HealthResponse,
-    ErrorResponse
+    ErrorResponse,
+    CVParseJSONRequest
 )
 from src.services.cv_parser_service import get_cv_parser_service
 from src.services.matching_service import get_matching_service
@@ -31,13 +33,7 @@ router = APIRouter()
 
 @router.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health_check():
-    """
-    Health check endpoint.
-    Returns service status and connectivity.
-    """
     mongodb_service = get_mongodb_service()
-    
-    # Check MongoDB connection
     mongodb_connected = mongodb_service.connected
     if not mongodb_connected:
         try:
@@ -51,46 +47,56 @@ async def health_check():
         service=settings.app_name,
         version=settings.app_version,
         mongodb_connected=mongodb_connected,
-        models_loaded=True  # TODO: Check if models are actually loaded
+        models_loaded=True
     )
 
 
 # =====================================================
-# CV Parsing
+# CV Parsing - VERSION ULTRA ROBUSTE
 # =====================================================
 
 @router.post("/api/parse-cv", response_model=ParsedCVResponse, tags=["CV Parsing"])
-async def parse_cv(
-    file: UploadFile = File(..., description="CV file (PDF or DOCX)"),
-    candidate_id: Optional[int] = Query(None, description="PostgreSQL candidate ID")
-):
+async def parse_cv(request: Request):
     """
-    Parse a CV file and extract structured data.
-    
-    - **file**: CV file in PDF or DOCX format
-    - **candidate_id**: Optional candidate ID from PostgreSQL database
-    
-    Returns parsed candidate information including:
-    - Personal information (name, email, phone)
-    - Work experiences
-    - Education
-    - Skills
-    - Languages
+    Parse a CV file. 
+    Détecte automatiquement si c'est du JSON (n8n) ou du Form-Data (Curl).
     """
+    cv_parser_service = get_cv_parser_service()
+    content_type = request.headers.get("content-type", "")
+
     try:
-        logger.info(f"Received CV parsing request: {file.filename}")
-        
-        cv_parser_service = get_cv_parser_service()
-        result = await cv_parser_service.parse_cv(file, candidate_id)
-        
-        return ParsedCVResponse(**result)
-        
-    except ValueError as e:
-        logger.error(f"Validation error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        # CAS 1 : n8n envoie du JSON (application/json)
+        if "application/json" in content_type:
+            data = await request.json()
+            c_id = data.get("candidate_id")
+            f_name = data.get("filename", "cv.pdf")
+            f_base64 = data.get("file_base64")
+
+            if not f_base64:
+                raise HTTPException(status_code=400, detail="file_base64 est vide")
+
+            logger.info(f"n8n JSON detecté pour candidat {c_id}")
+            file_content = base64.b64decode(f_base64)
+            result = await cv_parser_service.parse_cv_from_bytes(file_content, f_name, c_id)
+            return ParsedCVResponse(**result)
+
+        # CAS 2 : Curl ou Postman (multipart/form-data)
+        else:
+            form = await request.form()
+            file_field = form.get("file")
+            c_id = form.get("candidate_id")
+
+            if file_field and isinstance(file_field, UploadFile):
+                logger.info(f"Fichier Multipart detecté: {file_field.filename}")
+                candidate_id_int = int(c_id) if c_id else None
+                result = await cv_parser_service.parse_cv(file_field, candidate_id_int)
+                return ParsedCVResponse(**result)
+
+        raise HTTPException(status_code=400, detail="Format de requête non supporté")
+
     except Exception as e:
-        logger.error(f"CV parsing failed: {e}")
-        raise HTTPException(status_code=500, detail=f"CV parsing failed: {str(e)}")
+        logger.error(f"ERREUR CRITIQUE PARSING: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =====================================================
@@ -99,35 +105,17 @@ async def parse_cv(
 
 @router.post("/api/match-score", response_model=MatchingScoreResponse, tags=["Matching"])
 async def calculate_matching_score(request: MatchingRequest):
-    """
-    Calculate matching score between a candidate and a job offer.
-    
-    - **candidate_id**: PostgreSQL candidate ID
-    - **job_offer_id**: PostgreSQL job offer ID
-    
-    Returns:
-    - Matching score (0-100)
-    - Matched skills
-    - Missing skills
-    - Qualification status
-    """
     try:
         logger.info(f"Calculating match: candidate={request.candidate_id}, job={request.job_offer_id}")
-        
         matching_service = get_matching_service()
         result = await matching_service.calculate_matching_score(
             request.candidate_id,
             request.job_offer_id
         )
-        
         return MatchingScoreResponse(**result)
-        
-    except ValueError as e:
-        logger.error(f"Validation error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Matching calculation failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Matching failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =====================================================
@@ -136,61 +124,28 @@ async def calculate_matching_score(request: MatchingRequest):
 
 @router.post("/api/predict", response_model=PredictionResponse, tags=["Prediction"])
 async def predict_success(request: PredictionRequest):
-    """
-    Predict hiring success probability using ML model.
-    
-    - **candidate_id**: PostgreSQL candidate ID
-    - **job_offer_id**: PostgreSQL job offer ID
-    
-    Returns:
-    - Success probability (0.0 - 1.0)
-    - Matching score
-    - Confidence level
-    - Main factors influencing the prediction
-    - Hiring recommendation
-    """
     try:
         logger.info(f"Making prediction: candidate={request.candidate_id}, job={request.job_offer_id}")
-        
         prediction_service = get_prediction_service()
         result = await prediction_service.predict_success(
             request.candidate_id,
             request.job_offer_id
         )
-        
         return PredictionResponse(**result)
-        
-    except ValueError as e:
-        logger.error(f"Validation error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Prediction failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-
-# =====================================================
-# Utility Endpoints
-# =====================================================
 
 @router.get("/", tags=["Root"])
 async def root():
-    """Root endpoint - API information."""
-    return {
-        "service": settings.app_name,
-        "version": settings.app_version,
-        "status": "running",
-        "docs": "/docs",
-        "health": "/health"
-    }
+    return {"service": settings.app_name, "version": settings.app_version, "status": "running"}
 
 
 @router.get("/api/config", tags=["Configuration"])
 async def get_config():
-    """Get API configuration."""
     return {
         "app_name": settings.app_name,
         "version": settings.app_version,
-        "max_file_size_mb": settings.max_file_size_mb,
-        "allowed_extensions": settings.allowed_extensions,
         "matching_threshold": settings.matching_threshold
     }
