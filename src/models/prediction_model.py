@@ -43,7 +43,7 @@ class PredictionModel:
             Feature vector as numpy array
         """
         features = [
-            matching_score,  # Most important feature
+            matching_score,  
             candidate_data.get('total_experience_years', 0),
             len(candidate_data.get('skills', [])),
             len(candidate_data.get('languages', [])),
